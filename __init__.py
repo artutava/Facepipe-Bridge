@@ -1,7 +1,11 @@
 bl_info = {
-    "name": "Import CSV as Shape Key Action",
+    "name": "Facepipe Bridge: Import CSV as Shape Key Action",
     "blender": (2, 93, 0),
     "category": "Import-Export",
+    "author": "Artur Tavares",
+    "description": "Imports Facepipe CSV files as shape key animations for mesh objects",
+    "warning": "Should be used with Facepipe, as csv structure differs from ARKIT, ARKIT support is planned in the future",
+    "doc_url": "https://facepipe.sircrux.com",
 }
 
 import bpy
@@ -16,9 +20,18 @@ def read_csv_file(filepath):
     return data
 
 def create_shape_keys(obj, shape_key_names):
+    # Adds a Basis shape key first, which is needed as a base for other shape keys
     basis = obj.shape_key_add(name="Basis")
+
+    # Modify each shape key name according to the specified rules
     for name in shape_key_names:
-        obj.shape_key_add(name=name)
+        # Check for exceptions where replacements should not occur
+        if name in ["jawLeft", "jawRight", "mouthLeft", "mouthRight"]:
+            obj.shape_key_add(name=name)
+        else:
+            # Replace "Left" with "_L" and "Right" with "_R" for other names
+            modified_name = name.replace("Left", "_L").replace("Right", "_R")
+            obj.shape_key_add(name=modified_name)
 
 def create_shape_key_action(obj, frame_data):
     shape_key_names = frame_data[0]
@@ -102,7 +115,7 @@ class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
         return {'FINISHED'}
         
 def menu_func_import(self, context):
-    self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="CSV Shape Key Import (.csv)")
+    self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="Facepipe CSV Shape Key Import (.csv)")
 
 def register():
     bpy.utils.register_class(CSV_IMPORT_OT_shape_key)

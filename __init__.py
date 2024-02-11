@@ -19,23 +19,44 @@ def read_csv_file(filepath):
         data = [row for row in reader]
     return data
 
-def create_shape_keys(obj, shape_key_names):
-    # Adds a Basis shape key first, which is needed as a base for other shape keys
-    basis = obj.shape_key_add(name="Basis")
+def calculate_average_fps(filepath):
+    with open(filepath, newline='', encoding='utf-8') as csvfile:
+        reader = csv.reader(csvfile)
+        fps_values = []
+        for row in reader:
+            try:
+                fps = float(row[-1])  # Assuming FPS values are in the last column
+                fps_values.append(fps)
+            except ValueError:
+                continue
+        
+        if fps_values:
+            average_fps = sum(fps_values) / len(fps_values)
+            return average_fps
+        else:
+            return None
 
-    # Modify each shape key name according to the specified rules
+def create_shape_keys(obj, shape_key_names):
+    basis = obj.shape_key_add(name="Basis")
     for name in shape_key_names:
-        # Check for exceptions where replacements should not occur
         if name in ["jawLeft", "jawRight", "mouthLeft", "mouthRight"]:
             obj.shape_key_add(name=name)
         else:
-            # Replace "Left" with "_L" and "Right" with "_R" for other names
             modified_name = name.replace("Left", "_L").replace("Right", "_R")
             obj.shape_key_add(name=modified_name)
 
 def create_shape_key_action(obj, frame_data):
     shape_key_names = frame_data[0]
-    create_shape_keys(obj, shape_key_names)
+    modified_shape_key_names = []
+
+    for name in shape_key_names:
+        if name in ["jawLeft", "jawRight", "mouthLeft", "mouthRight"]:
+            modified_shape_key_names.append(name)
+        else:
+            modified_name = name.replace("Left", "_L").replace("Right", "_R")
+            modified_shape_key_names.append(modified_name)
+    
+    create_shape_keys(obj, modified_shape_key_names)
 
     if not obj.animation_data:
         obj.animation_data_create()
@@ -44,25 +65,25 @@ def create_shape_key_action(obj, frame_data):
     action.use_fake_user = True
     obj.animation_data.action = action
 
-    for i, shape_key_name in enumerate(shape_key_names):
+    for i, modified_shape_key_name in enumerate(modified_shape_key_names):
         for j, row in enumerate(frame_data[1:]):
             frame = j + 1
             value = float(row[i])
 
-            shape_key = obj.data.shape_keys.key_blocks[shape_key_name]
+            shape_key = obj.data.shape_keys.key_blocks[modified_shape_key_name]
             shape_key.value = value
             shape_key.keyframe_insert(data_path='value', frame=frame)
 
-def bake_action_to_scene_fps(action, original_fps, scene_fps):
+def bake_action_to_scene_fps(action, average_fps, scene_fps):
     action_baked = action.copy()
     action_baked.name = action.name + "_baked"
     
     for fcurve in action_baked.fcurves:
         keyframe_points = fcurve.keyframe_points
         for keyframe in keyframe_points:
-            keyframe.co.x = keyframe.co.x * (scene_fps / original_fps)
-            keyframe.handle_left.x = keyframe.handle_left.x * (scene_fps / original_fps)
-            keyframe.handle_right.x = keyframe.handle_right.x * (scene_fps / original_fps)
+            keyframe.co.x = keyframe.co.x * (scene_fps / average_fps)
+            keyframe.handle_left.x = keyframe.handle_left.x * (scene_fps / average_fps)
+            keyframe.handle_right.x = keyframe.handle_right.x * (scene_fps / average_fps)
 
     action_baked.use_fake_user = True
     return action_baked
@@ -84,38 +105,33 @@ class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
         default=False,
     )
 
-    original_fps: bpy.props.IntProperty(
-        name="Original FPS",
-        description="FPS of the original animation",
-        default=50,
-        min=1,
-        max=240
-    )
-
     def execute(self, context):
-        # Create a temporary cube and set it as the active object
+        # Calculate the average FPS from the CSV, to be used as the original FPS
+        average_fps = calculate_average_fps(self.filepath)
+        if average_fps is None:
+            self.report({'ERROR'}, "No valid FPS values found in CSV.")
+            return {'CANCELLED'}
+
+        frame_data = read_csv_file(self.filepath)
         bpy.ops.mesh.primitive_cube_add()
         temp_cube = context.active_object
         temp_cube.name = "Temp_Cube"
-
-        frame_data = read_csv_file(self.filepath)
         create_shape_key_action(temp_cube, frame_data)
 
-        # Bake action to scene FPS if the "Scene FPS" checkbox is checked
-        if self.scene_fps:
-            scene_fps = context.scene.render.fps / context.scene.render.fps_base
-            baked_action = bake_action_to_scene_fps(temp_cube.data.shape_keys.animation_data.action, self.original_fps, scene_fps)
-            temp_cube.data.shape_keys.animation_data.action = baked_action
+        # Always bake action to the scene FPS, using the calculated average FPS as the original
+        scene_fps = context.scene.render.fps / context.scene.render.fps_base
+        baked_action = bake_action_to_scene_fps(temp_cube.data.shape_keys.animation_data.action, average_fps, scene_fps)
+        temp_cube.data.shape_keys.animation_data.action = baked_action
 
-        # Delete the temporary cube
         bpy.ops.object.select_all(action='DESELECT')
         temp_cube.select_set(True)
         bpy.ops.object.delete()
 
         return {'FINISHED'}
-        
+
+
 def menu_func_import(self, context):
-    self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="Facepipe CSV Shape Key Import (.csv)")
+    self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="Import CSV Shape Key Action (.csv)")
 
 def register():
     bpy.utils.register_class(CSV_IMPORT_OT_shape_key)

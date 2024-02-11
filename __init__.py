@@ -10,6 +10,7 @@ bl_info = {
 
 import bpy
 import csv
+import os
 from bpy_extras.io_utils import ImportHelper
 from bpy.types import Operator
 
@@ -36,6 +37,15 @@ def calculate_average_fps(filepath):
         else:
             return None
 
+def get_csv_filename(filepath):
+    """Extract the base name of the CSV file without its extension."""
+    base = os.path.basename(filepath)
+    return os.path.splitext(base)[0]
+
+def format_fps(fps):
+    """Format FPS as an integer if it's a whole number, otherwise as a float with 2 decimal places."""
+    return f"{int(fps)}" if fps.is_integer() else f"{fps:.2f}"
+
 def create_shape_keys(obj, shape_key_names):
     basis = obj.shape_key_add(name="Basis")
     for name in shape_key_names:
@@ -45,7 +55,7 @@ def create_shape_keys(obj, shape_key_names):
             modified_name = name.replace("Left", "_L").replace("Right", "_R")
             obj.shape_key_add(name=modified_name)
 
-def create_shape_key_action(obj, frame_data):
+def create_shape_key_action(obj, frame_data, csv_filename, average_fps):
     shape_key_names = frame_data[0]
     modified_shape_key_names = []
 
@@ -61,7 +71,8 @@ def create_shape_key_action(obj, frame_data):
     if not obj.animation_data:
         obj.animation_data_create()
 
-    action = bpy.data.actions.new(name="CSV_Shape_Key_Action")
+    action_name = f"{csv_filename}_{format_fps(average_fps)}"
+    action = bpy.data.actions.new(name=action_name)
     action.use_fake_user = True
     obj.animation_data.action = action
 
@@ -74,9 +85,9 @@ def create_shape_key_action(obj, frame_data):
             shape_key.value = value
             shape_key.keyframe_insert(data_path='value', frame=frame)
 
-def bake_action_to_scene_fps(action, average_fps, scene_fps):
+def bake_action_to_scene_fps(action, average_fps, scene_fps, csv_filename):
     action_baked = action.copy()
-    action_baked.name = action.name + "_baked"
+    action_baked.name = f"{csv_filename}_{format_fps(scene_fps)}"
     
     # The scale factor adjusts the frame index from the average FPS to the scene FPS
     scale_factor = scene_fps / average_fps
@@ -90,8 +101,6 @@ def bake_action_to_scene_fps(action, average_fps, scene_fps):
 
     action_baked.use_fake_user = True
     return action_baked
-
-
 
 class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
     bl_idname = "import_scene.csv_shape_key_action"
@@ -111,21 +120,20 @@ class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
     )
 
     def execute(self, context):
-        # Calculate the average FPS from the CSV, to be used as the original FPS
         average_fps = calculate_average_fps(self.filepath)
         if average_fps is None:
             self.report({'ERROR'}, "No valid FPS values found in CSV.")
             return {'CANCELLED'}
 
+        csv_filename = get_csv_filename(self.filepath)
         frame_data = read_csv_file(self.filepath)
         bpy.ops.mesh.primitive_cube_add()
         temp_cube = context.active_object
         temp_cube.name = "Temp_Cube"
-        create_shape_key_action(temp_cube, frame_data)
+        create_shape_key_action(temp_cube, frame_data, csv_filename, average_fps)
 
-        # Always bake action to the scene FPS, using the calculated average FPS as the original
         scene_fps = context.scene.render.fps / context.scene.render.fps_base
-        baked_action = bake_action_to_scene_fps(temp_cube.data.shape_keys.animation_data.action, average_fps, scene_fps)
+        baked_action = bake_action_to_scene_fps(temp_cube.data.shape_keys.animation_data.action, average_fps, scene_fps, csv_filename)
         temp_cube.data.shape_keys.animation_data.action = baked_action
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -133,7 +141,6 @@ class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
         bpy.ops.object.delete()
 
         return {'FINISHED'}
-
 
 def menu_func_import(self, context):
     self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="Facepipe: Import CSV Shape Key Action (.csv)")

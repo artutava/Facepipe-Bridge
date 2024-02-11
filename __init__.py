@@ -78,15 +78,20 @@ def bake_action_to_scene_fps(action, average_fps, scene_fps):
     action_baked = action.copy()
     action_baked.name = action.name + "_baked"
     
+    # The scale factor adjusts the frame index from the average FPS to the scene FPS
+    scale_factor = scene_fps / average_fps
+    
     for fcurve in action_baked.fcurves:
-        keyframe_points = fcurve.keyframe_points
-        for keyframe in keyframe_points:
-            keyframe.co.x = keyframe.co.x * (scene_fps / average_fps)
-            keyframe.handle_left.x = keyframe.handle_left.x * (scene_fps / average_fps)
-            keyframe.handle_right.x = keyframe.handle_right.x * (scene_fps / average_fps)
+        for keyframe in fcurve.keyframe_points:
+            # Correctly scale the keyframe's frame number to adjust to the new FPS
+            keyframe.co.x = keyframe.co.x * scale_factor
+            keyframe.handle_left.x = keyframe.handle_left.x * scale_factor
+            keyframe.handle_right.x = keyframe.handle_right.x * scale_factor
 
     action_baked.use_fake_user = True
     return action_baked
+
+
 
 class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
     bl_idname = "import_scene.csv_shape_key_action"
@@ -131,7 +136,7 @@ class CSV_IMPORT_OT_shape_key(Operator, ImportHelper):
 
 
 def menu_func_import(self, context):
-    self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="Import CSV Shape Key Action (.csv)")
+    self.layout.operator(CSV_IMPORT_OT_shape_key.bl_idname, text="Facepipe: Import CSV Shape Key Action (.csv)")
 
 def register():
     bpy.utils.register_class(CSV_IMPORT_OT_shape_key)
